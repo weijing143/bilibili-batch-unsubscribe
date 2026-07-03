@@ -144,8 +144,25 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  // 定位「我追的合集/收藏夹」区域容器，避免误碰「我创建的收藏夹」
+  function getSubscribedSectionRoot() {
+    const headers = $$('.vui_collapse_item_header, [class*="collapse"][class*="header"]');
+    for (const h of headers) {
+      const t = (h.textContent || '').trim();
+      if (t.includes('追的合集') || t.includes('我追的')) {
+        return h.closest('.vui_collapse_item') || h.parentElement;
+      }
+    }
+    return null; // 没找到区域时返回 null，collectFavorites 会安全降级
+  }
+
   function collectFavorites() {
-    const items = $$('.fav-sidebar-item');
+    // 优先只在「我追的合集」区域内收集；找不到区域则退回全量
+    // （即使退回全量也安全：取消订阅只对含"取消订阅"菜单项的合集生效，
+    //   自建收藏夹菜单是"删除"，不会被误点）
+    const sectionRoot = getSubscribedSectionRoot();
+    const root = sectionRoot || document;
+    const items = Array.from(root.querySelectorAll('.fav-sidebar-item'));
     return items.map((el, i) => ({
       index: i,
       title: el.getAttribute('title') || el.textContent?.trim() || `未命名-${i}`,
@@ -154,23 +171,27 @@
   }
 
   async function expandAll() {
-    const btn = $('.fav-collapse-more');
-    if (btn) {
+    // 反复点击「显示剩余N个」直到全部展开（合集可能很多）
+    let clicks = 0;
+    for (let round = 0; round < 15; round++) {
+      const btn = $('.fav-collapse-more');
+      if (!btn || btn.offsetParent === null) break;
       btn.click();
-      await sleep(1500);
-      return true;
+      clicks++;
+      await sleep(900);
     }
-    return false;
+    return clicks > 0;
   }
 
   // ========== 核心：单个取消订阅 ==========
   async function unsubscribeOne(item, opts) {
-    const { hoverDelay = 300, clickDelay = 400 } = opts;
+    const { hoverDelay = 350, clickDelay = 450 } = opts;
     const el = item.element;
 
     el.scrollIntoView({ block: 'center', behavior: 'instant' });
     await sleep(150);
 
+    // 悬停以显示「更多」按钮
     el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
     el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     await sleep(hoverDelay);
@@ -178,26 +199,43 @@
     const moreBtn = el.querySelector('.more-vertical');
     if (!moreBtn) return { ok: false, reason: '无更多按钮' };
 
-    moreBtn.click();
+    // Vue 组件可能不响应合成 click，补齐 pointer/mouse 全套事件
+    ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((type) => {
+      moreBtn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    });
     await sleep(clickDelay);
 
-    const selectors = [
-      '.menu-popover__panel-item',
-      '.vui_popover-content',
-      '.vui_popover',
-      '.bili-popover__content .item',
-    ];
-    for (const sel of selectors) {
-      const menuItems = $$(sel);
-      for (const mi of menuItems) {
-        const text = mi.textContent?.trim() ?? '';
-        if (text === '取消订阅' || text.includes('取消订阅')) {
-          mi.click();
-          return { ok: true };
-        }
+    // 关键：只在【当前可见】的菜单里找「取消订阅」
+    // B 站会把用过的菜单堆积在 DOM 里（隐藏），必须用 offsetParent 过滤
+    const menuItems = document.querySelectorAll('.menu-popover__panel-item');
+    let target = null;
+    for (const mi of menuItems) {
+      const text = (mi.textContent || '').trim();
+      if (text === '取消订阅' && mi.offsetParent !== null) {
+        target = mi;
+        break;
       }
     }
-    return { ok: false, reason: '未找到「取消订阅」菜单' };
+
+    if (!target) {
+      // 关闭可能打开的菜单，避免堆积
+      document.body.click();
+      return { ok: false, reason: '当前项无可见的「取消订阅」(可能是自建收藏夹)' };
+    }
+
+    target.click();
+    await sleep(250);
+    // 部分情况会二次确认
+    const confirmBtns = document.querySelectorAll('.vui_dialog button, .bili-dialog button, [class*="dialog"] button');
+    for (const b of confirmBtns) {
+      const t = (b.textContent || '').trim();
+      if ((t === '确定' || t === '确认') && b.offsetParent !== null) {
+        b.click();
+        await sleep(200);
+        break;
+      }
+    }
+    return { ok: true };
   }
 
   // ========== 批量执行 ==========

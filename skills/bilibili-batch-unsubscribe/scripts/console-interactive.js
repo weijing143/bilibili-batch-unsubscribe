@@ -11,12 +11,52 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const c = { info: 'color:#00a1d6', ok: 'color:#10b981', fail: 'color:#ef4444', dim: 'color:#6b7280' };
 
+  // 定位「我追的合集/收藏夹」区域，避免误碰自建收藏夹
+  function getSubscribedSectionRoot() {
+    const headers = document.querySelectorAll('.vui_collapse_item_header, [class*="collapse"][class*="header"]');
+    for (const h of headers) {
+      const t = (h.textContent || '').trim();
+      if (t.includes('追的合集') || t.includes('我追的')) {
+        return h.closest('.vui_collapse_item') || h.parentElement;
+      }
+    }
+    return null;
+  }
+
   function collectFavorites() {
-    return Array.from(document.querySelectorAll('.fav-sidebar-item')).map((el, i) => ({
+    const root = getSubscribedSectionRoot() || document;
+    return Array.from(root.querySelectorAll('.fav-sidebar-item')).map((el, i) => ({
       index: i,
       title: el.getAttribute('title') || el.textContent?.trim() || `未命名-${i}`,
       element: el,
     }));
+  }
+
+  async function unsubOne(el) {
+    el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    await sleep(200);
+    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    await sleep(350);
+    const moreBtn = el.querySelector('.more-vertical');
+    if (!moreBtn) return { ok: false, reason: '无更多按钮' };
+    // 补齐 pointer/mouse 全套事件，确保 Vue 菜单能打开
+    ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((type) => {
+      moreBtn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    });
+    await sleep(450);
+    // 只在当前可见菜单里找「取消订阅」（B 站会堆积隐藏菜单）
+    const menus = document.querySelectorAll('.menu-popover__panel-item');
+    for (const m of menus) {
+      const t = (m.textContent || '').trim();
+      if (t === '取消订阅' && m.offsetParent !== null) {
+        m.click();
+        await sleep(200);
+        return { ok: true };
+      }
+    }
+    document.body.click(); // 关闭菜单
+    return { ok: false, reason: '无可见"取消订阅"(可能是自建收藏夹)' };
   }
 
   // 解析序号表达式："1,3,5-8,10" → [1,3,5,6,7,8,10]
@@ -38,36 +78,14 @@
     return Array.from(result).filter((n) => n >= 0 && n < max).sort((a, b) => a - b);
   }
 
-  async function unsubOne(el) {
-    el.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await sleep(200);
-    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    await sleep(300);
-    const moreBtn = el.querySelector('.more-vertical');
-    if (!moreBtn) return { ok: false, reason: '无更多按钮' };
-    moreBtn.click();
-    await sleep(400);
-    const menus = document.querySelectorAll(
-      '.menu-popover__panel-item, .vui_popover-content, .vui_popover, .bili-popover__content .item'
-    );
-    for (const m of menus) {
-      const t = m.textContent?.trim() ?? '';
-      if (t === '取消订阅' || t.includes('取消订阅')) {
-        m.click();
-        return { ok: true };
-      }
-    }
-    return { ok: false, reason: '未找到取消订阅菜单' };
-  }
-
   // 展示列表 + 交互式提示
   async function main() {
-    // 尝试展开
-    const expand = document.querySelector('.fav-collapse-more');
-    if (expand) {
+    // 反复点「显示剩余N个」直到全部展开
+    for (let round = 0; round < 15; round++) {
+      const expand = document.querySelector('.fav-collapse-more');
+      if (!expand || expand.offsetParent === null) break;
       expand.click();
-      await sleep(1500);
+      await sleep(900);
     }
 
     const favs = collectFavorites();
