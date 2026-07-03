@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mock · B站 favlist 测试页</title>
+  <style>
+    body { font-family: -apple-system, "Microsoft YaHei", sans-serif; padding: 24px; background: #f6f7f8; }
+    h1 { font-size: 18px; color: #18191c; }
+    .hint { color: #9499a0; font-size: 13px; margin-bottom: 16px; }
+    .fav-sidebar { max-width: 360px; background: #fff; border-radius: 8px; padding: 8px; }
+    .fav-sidebar-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px; border-radius: 6px; cursor: pointer; position: relative;
+    }
+    .fav-sidebar-item:hover { background: #f1f2f3; }
+    .fav-sidebar-item .name { color: #18191c; font-size: 14px; }
+    /* 更多按钮默认隐藏，hover 才显示 —— 模拟 B 站真实行为 */
+    .fav-sidebar-item .more-vertical {
+      display: none; width: 24px; height: 24px; border-radius: 4px;
+      align-items: center; justify-content: center; color: #9499a0;
+      background: #e3e5e7; font-weight: bold; user-select: none;
+    }
+    .fav-sidebar-item:hover .more-vertical { display: inline-flex; }
+    /* 弹出菜单 */
+    .menu-popover { display: none; position: absolute; right: 8px; top: 40px; z-index: 10;
+      background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.15); border-radius: 6px; overflow: hidden; }
+    .menu-popover.open { display: block; }
+    .menu-popover__panel-item { padding: 8px 20px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    .menu-popover__panel-item:hover { background: #f1f2f3; color: #00aeec; }
+    #test-log { margin-top: 20px; padding: 12px; background: #1f2937; color: #34d399;
+      font-family: monospace; font-size: 12px; border-radius: 6px; max-width: 360px; min-height: 40px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Mock · B站 favlist 测试页</h1>
+  <p class="hint">这是模拟真实 B 站 DOM 结构的本地测试页，用于验证注入脚本。共 8 个"追的合集"。<br>
+  用法：在本目录起服务器 <code>python -m http.server 8899</code>，浏览器打开本页后，控制台粘贴 <code>../dist/selector-ui.js</code> 内容即可测试。</p>
+
+  <div class="fav-sidebar" id="fav-list"></div>
+
+  <div id="test-log">等待脚本注入...</div>
+
+  <script>
+    // 模拟数据
+    const mockFavorites = [
+      '示例合集 A',
+      '示例合集 B',
+      '带"引号"的合集',
+      '带(括号)的合集',
+      '技术分享',
+      '学习资料',
+      '很长很长很长很长很长很长很长的合集名称测试溢出省略号显示',
+      'Emoji 合集 🎵🎬',
+    ];
+
+    // 记录被取消订阅的项，供测试断言
+    window.__unsubscribed = [];
+
+    function log(msg) {
+      const el = document.getElementById('test-log');
+      el.innerHTML += '<div>' + msg + '</div>';
+    }
+
+    function renderFavList() {
+      const container = document.getElementById('fav-list');
+      container.innerHTML = '';
+      mockFavorites.forEach((title) => {
+        const item = document.createElement('div');
+        item.className = 'fav-sidebar-item';
+        item.setAttribute('title', title);
+        item.innerHTML = `
+          <span class="name">${title}</span>
+          <span class="more-vertical">⋮</span>
+          <div class="menu-popover">
+            <div class="menu-popover__panel-item">分享</div>
+            <div class="menu-popover__panel-item">取消订阅</div>
+          </div>
+        `;
+
+        // 更多按钮点击 → 打开菜单
+        const moreBtn = item.querySelector('.more-vertical');
+        const popover = item.querySelector('.menu-popover');
+        moreBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          // 关闭其他
+          document.querySelectorAll('.menu-popover.open').forEach((p) => p !== popover && p.classList.remove('open'));
+          popover.classList.add('open');
+        });
+
+        // 「取消订阅」点击 → 移除该项 + 记录
+        popover.querySelectorAll('.menu-popover__panel-item').forEach((mi) => {
+          mi.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (mi.textContent.trim() === '取消订阅') {
+              window.__unsubscribed.push(title);
+              log('🗑️ 已取消订阅: ' + title);
+              const idx = mockFavorites.indexOf(title);
+              if (idx > -1) mockFavorites.splice(idx, 1);
+              renderFavList();
+            }
+          });
+        });
+
+        container.appendChild(item);
+      });
+    }
+
+    renderFavList();
+    log('✅ Mock 页面就绪，共 ' + mockFavorites.length + ' 个合集');
+  </script>
+</body>
+</html>
