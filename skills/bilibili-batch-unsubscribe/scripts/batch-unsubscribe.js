@@ -84,7 +84,19 @@ async function bilibiliBatchUnsubscribe(titlesToDelete, options = {}) {
         await sleep(hoverDelay);
       }
 
-      moreBtn.click();
+      // ★ 强制显示按钮：CSS :hover 伪类不响应 JS 合成事件
+      moreBtn.style.display = 'inline-block';
+      moreBtn.style.visibility = 'visible';
+
+      // 阻止点击事件冒泡到父级 .fav-sidebar-item（否则会触发导航跳转，关闭菜单）
+      const parent = moreBtn.parentElement;
+      const stopNav = (e) => { e.stopPropagation(); e.preventDefault(); };
+      parent.addEventListener('click', stopNav, { once: true, capture: true });
+
+      // 补齐 pointer/mouse 全套事件，确保 Vue 弹出菜单
+      ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((type) => {
+        moreBtn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      });
       await sleep(clickDelay);
 
       // 5. 查找并点击「取消订阅」菜单项

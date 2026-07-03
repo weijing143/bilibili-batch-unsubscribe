@@ -40,6 +40,15 @@
     await sleep(350);
     const moreBtn = el.querySelector('.more-vertical');
     if (!moreBtn) return { ok: false, reason: '无更多按钮' };
+    // ★ 强制显示按钮：CSS :hover 伪类不响应 JS 合成事件，必须用 inline style
+    moreBtn.style.display = 'inline-block';
+    moreBtn.style.visibility = 'visible';
+
+    // 阻止点击事件冒泡到父级 .fav-sidebar-item（否则会触发导航跳转，关闭菜单）
+    const parent = moreBtn.parentElement;
+    const stopNav = (e) => { e.stopPropagation(); e.preventDefault(); };
+    parent.addEventListener('click', stopNav, { once: true, capture: true });
+
     // 补齐 pointer/mouse 全套事件，确保 Vue 菜单能打开
     ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((type) => {
       moreBtn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
