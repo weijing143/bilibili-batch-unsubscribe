@@ -183,62 +183,74 @@
     return clicks > 0;
   }
 
-  // ========== 核心：单个取消订阅 ==========
+  // ========== 核心：单个取消订阅（半自动互动模式） ==========
+  // B 站的 Vue popover 菜单不响应 JS 合成事件，必须由用户真实点击 ⋮ 触发。
+  // 脚本负责：滚动定位 → 高亮引导 → 阻止跳转 → 检测菜单 → 自动点击「取消订阅」
   async function unsubscribeOne(item, opts) {
-    const { hoverDelay = 350, clickDelay = 450 } = opts;
+    const { pollInterval = 200, maxWait = 30000 } = opts || {};
     const el = item.element;
 
-    el.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await sleep(150);
+    // 1. 滚动到该项并高亮引导用户
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    await sleep(400);
 
-    // 悬停以显示「更多」按钮
-    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    await sleep(hoverDelay);
-
+    // 2. 强制显示 ⋮ 按钮
     const moreBtn = el.querySelector('.more-vertical');
     if (!moreBtn) return { ok: false, reason: '无更多按钮' };
-
-    // ★ 强制显示按钮：CSS :hover 伪类不响应 JS 合成事件，必须用 inline style
     moreBtn.style.display = 'inline-block';
     moreBtn.style.visibility = 'visible';
 
-    // ★ 阻止点击事件冒泡到父级 .fav-sidebar-item（否则会触发导航跳转，关闭菜单）
+    // 3. 高亮当前项（闪烁蓝色边框提醒用户点击）
+    const origOutline = el.style.outline;
+    const origBg = el.style.background;
+    el.style.outline = '3px solid #00a1d6';
+    el.style.outlineOffset = '-3px';
+    el.style.background = '#e0f7ff';
+    // 让 ⋮ 按钮更显眼
+    moreBtn.style.background = '#00a1d6';
+    moreBtn.style.color = '#fff';
+    moreBtn.style.borderRadius = '4px';
+    moreBtn.style.padding = '2px 6px';
+
+    // 4. 阻止用户点击 ⋮ 时冒泡导致页面跳转
     const parent = moreBtn.parentElement;
     const stopNav = (e) => { e.stopPropagation(); e.preventDefault(); };
     parent.addEventListener('click', stopNav, { once: true, capture: true });
 
-    // Vue 组件可能不响应合成 click，补齐 pointer/mouse 全套事件
-    ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((type) => {
-      moreBtn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-    });
-    await sleep(clickDelay);
-
-    // 关键：只在【当前可见】的菜单里找「取消订阅」
-    // B 站会把用过的菜单堆积在 DOM 里（隐藏），必须用 offsetParent 过滤
-    const menuItems = document.querySelectorAll('.menu-popover__panel-item');
-    let target = null;
-    for (const mi of menuItems) {
-      const text = (mi.textContent || '').trim();
-      if (text === '取消订阅' && mi.offsetParent !== null) {
-        target = mi;
-        break;
+    // 5. 轮询等待用户点击 ⋮ → 弹出菜单出现「取消订阅」
+    const startTime = Date.now();
+    let unsubBtn = null;
+    while (!unsubBtn && (Date.now() - startTime) < maxWait) {
+      await sleep(pollInterval);
+      const menus = document.querySelectorAll('.menu-popover__panel-item');
+      for (const m of menus) {
+        if ((m.textContent || '').trim() === '取消订阅' && m.offsetParent !== null) {
+          unsubBtn = m;
+          break;
+        }
       }
     }
 
-    if (!target) {
-      // 关闭可能打开的菜单，避免堆积
+    // 6. 还原样式
+    el.style.outline = origOutline;
+    el.style.background = origBg;
+    moreBtn.style.background = '';
+    moreBtn.style.color = '';
+    moreBtn.style.borderRadius = '';
+    moreBtn.style.padding = '';
+
+    if (!unsubBtn) {
       document.body.click();
-      return { ok: false, reason: '当前项无可见的「取消订阅」(可能是自建收藏夹)' };
+      return { ok: false, reason: '超时：未检测到用户点击 ⋮' };
     }
 
-    target.click();
+    // 7. 自动点击「取消订阅」
+    unsubBtn.click();
     await sleep(250);
-    // 部分情况会二次确认
+    // 部分情况二次确认弹窗
     const confirmBtns = document.querySelectorAll('.vui_dialog button, .bili-dialog button, [class*="dialog"] button');
     for (const b of confirmBtns) {
-      const t = (b.textContent || '').trim();
-      if ((t === '确定' || t === '确认') && b.offsetParent !== null) {
+      if ((b.textContent || '').trim() === '确定' && b.offsetParent !== null) {
         b.click();
         await sleep(200);
         break;
@@ -484,11 +496,12 @@
           const progressFill = $('.bu-progress-fill', panel);
           progressEl.style.display = 'block';
 
-          log(panel, `▶ 开始处理 ${selected.length} 个项目...`);
+          log(panel, `▶ 开始处理 ${selected.length} 个项目...`, 'info');
+          log(panel, `💡 请点击蓝色高亮项旁边的 ⋮ 按钮`, 'skip');
 
           const result = await runBatch(selected, {}, (p) => {
             if (p.phase === 'processing') {
-              progressText.textContent = `处理中 ${p.current}/${p.total}: ${p.item.slice(0, 30)}`;
+              progressText.textContent = `👆 请点击 ⋮ [${p.current}/${p.total}]: ${p.item.slice(0, 25)}`;
             } else if (p.phase === 'ok') {
               log(panel, `✅ [${p.current}/${p.total}] ${p.item}`, 'ok');
             } else if (p.phase === 'fail') {

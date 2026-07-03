@@ -32,40 +32,56 @@
     }));
   }
 
+  // 半自动模式：B 站 Vue popover 不响应 JS 合成事件，需用户真实点击 ⋮
+  // 脚本负责：滚动定位 → 高亮引导 → 阻止跳转 → 检测菜单 → 自动点「取消订阅」
   async function unsubOne(el) {
-    el.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await sleep(200);
-    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    await sleep(350);
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    await sleep(400);
+
     const moreBtn = el.querySelector('.more-vertical');
     if (!moreBtn) return { ok: false, reason: '无更多按钮' };
-    // ★ 强制显示按钮：CSS :hover 伪类不响应 JS 合成事件，必须用 inline style
+
+    // 强制显示 ⋮ 按钮
     moreBtn.style.display = 'inline-block';
     moreBtn.style.visibility = 'visible';
 
-    // 阻止点击事件冒泡到父级 .fav-sidebar-item（否则会触发导航跳转，关闭菜单）
-    const parent = moreBtn.parentElement;
-    const stopNav = (e) => { e.stopPropagation(); e.preventDefault(); };
-    parent.addEventListener('click', stopNav, { once: true, capture: true });
+    // 高亮引导
+    const origOutline = el.style.outline, origBg = el.style.background;
+    el.style.outline = '3px solid #00a1d6';
+    el.style.outlineOffset = '-3px';
+    el.style.background = '#e0f7ff';
+    moreBtn.style.background = '#00a1d6';
+    moreBtn.style.color = '#fff';
+    moreBtn.style.borderRadius = '4px';
 
-    // 补齐 pointer/mouse 全套事件，确保 Vue 菜单能打开
-    ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((type) => {
-      moreBtn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-    });
-    await sleep(450);
-    // 只在当前可见菜单里找「取消订阅」（B 站会堆积隐藏菜单）
-    const menus = document.querySelectorAll('.menu-popover__panel-item');
-    for (const m of menus) {
-      const t = (m.textContent || '').trim();
-      if (t === '取消订阅' && m.offsetParent !== null) {
-        m.click();
-        await sleep(200);
-        return { ok: true };
+    // 阻止点击冒泡导致跳转
+    const parent = moreBtn.parentElement;
+    parent.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); }, { once: true, capture: true });
+
+    // 轮询等待用户点击 ⋮ → 弹出菜单出现
+    const maxWait = 30000, pollInterval = 200;
+    const startTime = Date.now();
+    let unsubBtn = null;
+    while (!unsubBtn && (Date.now() - startTime) < maxWait) {
+      await sleep(pollInterval);
+      const menus = document.querySelectorAll('.menu-popover__panel-item');
+      for (const m of menus) {
+        if ((m.textContent || '').trim() === '取消订阅' && m.offsetParent !== null) {
+          unsubBtn = m;
+          break;
+        }
       }
     }
-    document.body.click(); // 关闭菜单
-    return { ok: false, reason: '无可见"取消订阅"(可能是自建收藏夹)' };
+
+    // 还原样式
+    el.style.outline = origOutline; el.style.background = origBg;
+    moreBtn.style.background = ''; moreBtn.style.color = ''; moreBtn.style.borderRadius = '';
+
+    if (!unsubBtn) { document.body.click(); return { ok: false, reason: '超时：未检测到用户点击 ⋮' }; }
+
+    unsubBtn.click();
+    await sleep(200);
+    return { ok: true };
   }
 
   // 解析序号表达式："1,3,5-8,10" → [1,3,5,6,7,8,10]
@@ -143,10 +159,12 @@
           return;
         }
 
+        console.log(`%c 💡 即将逐个处理，请点击蓝色高亮项的 ⋮ 按钮 `, c.info);
+
         const success = [], failed = [];
         for (let i = 0; i < targets.length; i++) {
           const t = targets[i];
-          console.log(`%c [${i + 1}/${targets.length}] 处理: ${t.title} `, c.dim);
+          console.log(`%c [${i + 1}/${targets.length}] 👆 请点击 ⋮ → ${t.title} `, c.info);
           try {
             const r = await unsubOne(t.element);
             if (r.ok) {

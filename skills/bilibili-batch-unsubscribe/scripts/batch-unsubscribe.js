@@ -59,16 +59,11 @@ async function bilibiliBatchUnsubscribe(titlesToDelete, options = {}) {
         continue;
       }
 
-      // 2. 滚动到视野
-      item.scrollIntoView({ block: 'center', behavior: 'instant' });
-      await sleep(200);
+      // 2. 滚动到该项并高亮引导用户点击 ⋮
+      item.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      await sleep(400);
 
-      // 3. 触发悬停 —— 双保险：mouseenter + mouseover
-      item.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-      item.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      await sleep(hoverDelay);
-
-      // 4. 定位「更多」按钮
+      // 3. 定位「更多」按钮
       const moreBtn = item.querySelector('.more-vertical');
       if (!moreBtn) {
         failed.push({ title, reason: '无更多按钮 (.more-vertical)' });
@@ -76,61 +71,57 @@ async function bilibiliBatchUnsubscribe(titlesToDelete, options = {}) {
         continue;
       }
 
-      // 检查可见性
-      const style = getComputedStyle(moreBtn);
-      if (style.display === 'none' || style.visibility === 'hidden') {
-        // 尝试再次悬停
-        item.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-        await sleep(hoverDelay);
-      }
-
-      // ★ 强制显示按钮：CSS :hover 伪类不响应 JS 合成事件
+      // 4. 强制显示按钮 + 高亮引导
       moreBtn.style.display = 'inline-block';
       moreBtn.style.visibility = 'visible';
+      const origOutline = item.style.outline, origBg = item.style.background;
+      item.style.outline = '3px solid #00a1d6';
+      item.style.outlineOffset = '-3px';
+      item.style.background = '#e0f7ff';
+      moreBtn.style.background = '#00a1d6';
+      moreBtn.style.color = '#fff';
+      moreBtn.style.borderRadius = '4px';
 
-      // 阻止点击事件冒泡到父级 .fav-sidebar-item（否则会触发导航跳转，关闭菜单）
+      // 5. 阻止用户点击 ⋮ 时冒泡导致页面跳转
       const parent = moreBtn.parentElement;
-      const stopNav = (e) => { e.stopPropagation(); e.preventDefault(); };
-      parent.addEventListener('click', stopNav, { once: true, capture: true });
+      parent.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); }, { once: true, capture: true });
 
-      // 补齐 pointer/mouse 全套事件，确保 Vue 弹出菜单
-      ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((type) => {
-        moreBtn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-      });
-      await sleep(clickDelay);
+      log(`👆 [${i + 1}/${titlesToDelete.length}] 请点击 ⋮ → ${shortTitle}`);
 
-      // 5. 查找并点击「取消订阅」菜单项
-      //    关键：必须用 offsetParent 过滤隐藏菜单（B 站会堆积历史菜单在 DOM）
-      const clicked = (() => {
-        const selectors = [
-          '.menu-popover__panel-item',
-          '.vui_popover-content',
-          '.vui_popover',
-          '.bili-popover__content .item',
-        ];
+      // 6. 轮询等待用户点击 ⋮ → 弹出菜单出现「取消订阅」
+      const maxWait = 30000, pollInterval = 200;
+      const startTime = Date.now();
+      let unsubBtn = null;
+      while (!unsubBtn && (Date.now() - startTime) < maxWait) {
+        await sleep(pollInterval);
+        const selectors = ['.menu-popover__panel-item', '.vui_popover-content', '.vui_popover', '.bili-popover__content .item'];
         for (const sel of selectors) {
           const items = document.querySelectorAll(sel);
           for (const el of items) {
-            const text = el.textContent?.trim() ?? '';
-            if ((text === '取消订阅' || text.includes('取消订阅')) && el.offsetParent !== null) {
-              el.click();
-              return true;
+            if ((el.textContent?.trim() === '取消订阅' || el.textContent?.trim().includes('取消订阅')) && el.offsetParent !== null) {
+              unsubBtn = el;
+              break;
             }
           }
+          if (unsubBtn) break;
         }
-        // 没找到可见菜单，关闭可能打开的菜单避免堆积
-        document.body.click();
-        return false;
-      })();
-
-      if (clicked) {
-        success.push(title);
-        log(`✅ [${i + 1}/${titlesToDelete.length}] OK: ${shortTitle}`);
-      } else {
-        failed.push({ title, reason: '未找到「取消订阅」菜单项' });
-        log(`❌ [${i + 1}/${titlesToDelete.length}] FAIL: ${shortTitle} (无菜单)`);
       }
 
+      // 7. 还原样式
+      item.style.outline = origOutline; item.style.background = origBg;
+      moreBtn.style.background = ''; moreBtn.style.color = ''; moreBtn.style.borderRadius = '';
+
+      if (!unsubBtn) {
+        document.body.click();
+        failed.push({ title, reason: '超时：未检测到用户点击 ⋮' });
+        log(`❌ [${i + 1}/${titlesToDelete.length}] FAIL: ${shortTitle} (超时)`);
+        continue;
+      }
+
+      // 8. 自动点击「取消订阅」
+      unsubBtn.click();
+      success.push(title);
+      log(`✅ [${i + 1}/${titlesToDelete.length}] OK: ${shortTitle}`);
       await sleep(delayBetween);
     } catch (e) {
       failed.push({ title, reason: e.message || String(e) });
