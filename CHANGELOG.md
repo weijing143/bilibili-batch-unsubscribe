@@ -2,6 +2,13 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范。
 
+## [1.0.1] - 2026-07-03
+
+### 修复
+- 🐛 `bilibiliExpandAll()` 现在循环最多 15 次点击「显示剩余N个」，确保合集超过一页时能全部展开（之前只点一次）
+- 🐛 菜单搜索添加 `offsetParent` 过滤，防止误点 B 站 DOM 历史堆积的隐藏菜单项
+- 🐛 菜单未找到时自动 `document.body.click()` 关闭菜单，避免菜单堆积
+
 ## [1.0.0] - 2026-07-03
 
 ### 新增
@@ -23,4 +30,5 @@
 - 单次建议 ≤ 100 个，太多会触发风控
 - 不处理「我创建的收藏夹」——只处理「我追的合集」，避免误删
 
+[1.0.1]: https://github.com/weijing143/bilibili-batch-unsubscribe/releases/tag/v1.0.1
 [1.0.0]: https://github.com/weijing143/bilibili-batch-unsubscribe/releases/tag/v1.0.0

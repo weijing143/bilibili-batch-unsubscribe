@@ -88,8 +88,8 @@ async function bilibiliBatchUnsubscribe(titlesToDelete, options = {}) {
       await sleep(clickDelay);
 
       // 5. 查找并点击「取消订阅」菜单项
+      //    关键：必须用 offsetParent 过滤隐藏菜单（B 站会堆积历史菜单在 DOM）
       const clicked = (() => {
-        // 候选选择器（B 站不同前端版本）
         const selectors = [
           '.menu-popover__panel-item',
           '.vui_popover-content',
@@ -100,12 +100,14 @@ async function bilibiliBatchUnsubscribe(titlesToDelete, options = {}) {
           const items = document.querySelectorAll(sel);
           for (const el of items) {
             const text = el.textContent?.trim() ?? '';
-            if (text === '取消订阅' || text.includes('取消订阅')) {
+            if ((text === '取消订阅' || text.includes('取消订阅')) && el.offsetParent !== null) {
               el.click();
               return true;
             }
           }
         }
+        // 没找到可见菜单，关闭可能打开的菜单避免堆积
+        document.body.click();
         return false;
       })();
 
@@ -159,13 +161,17 @@ function bilibiliListAllFavorites() {
 // 辅助函数：展开「显示剩余N个」
 // ============================================================
 async function bilibiliExpandAll() {
-  const btn = document.querySelector('.fav-collapse-more');
-  if (btn) {
+  // 反复点击「显示剩余N个」直到全部展开（合集可能很多，最多尝试 15 次）
+  let clicks = 0;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (let round = 0; round < 15; round++) {
+    const btn = document.querySelector('.fav-collapse-more');
+    if (!btn || btn.offsetParent === null) break;
     btn.click();
-    await new Promise((r) => setTimeout(r, 1500));
-    return true;
+    clicks++;
+    await sleep(900);
   }
-  return false;
+  return clicks > 0;
 }
 
 // ============================================================
