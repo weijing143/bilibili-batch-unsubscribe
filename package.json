@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "bilibili-batch-unsubscribe",
+  "version": "1.0.0",
+  "description": "批量取消 B 站（哔哩哔哩）追的合集/收藏夹订阅 · 可视化 UI + 控制台命令 + ZCode Skill 三种模式 · Bulk-unsubscribe Bilibili followed collections",
+  "license": "MIT",
+  "private": false,
+  "keywords": [
+    "bilibili",
+    "b站",
+    "哔哩哔哩",
+    "batch",
+    "unsubscribe",
+    "取消订阅",
+    "收藏夹",
+    "合集",
+    "userscript",
+    "zcode",
+    "zcode-plugin",
+    "zcode-skill",
+    "automation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weijing143/bilibili-batch-unsubscribe"
+  },
+  "bugs": {
+    "url": "https://github.com/weijing143/bilibili-batch-unsubscribe/issues"
+  },
+  "homepage": "https://github.com/weijing143/bilibili-batch-unsubscribe#readme",
+  "scripts": {
+    "dist": "node scripts/build-dist.mjs || echo 'no build step needed'"
+  },
+  "files": [
+    "skills/",
+    "dist/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ]
+}
